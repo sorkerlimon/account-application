@@ -33,17 +33,7 @@ CREATE TABLE salaries (
     FOREIGN KEY (employee_id) REFERENCES employees(employee_id)
 );
 
--- Expenses table
-CREATE TABLE expenses (
-    expense_id INT PRIMARY KEY AUTO_INCREMENT,
-    category VARCHAR(50) NOT NULL,
-    amount DECIMAL(10, 2) NOT NULL,
-    description TEXT,
-    expense_date DATE NOT NULL,
-    created_by INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (created_by) REFERENCES users(user_id)
-);
+
 
 -- Invoices table
 CREATE TABLE invoices (
@@ -57,3 +47,15 @@ CREATE TABLE invoices (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (employee_id) REFERENCES employees(employee_id)
 ); 
+
+-- Expenses table
+CREATE TABLE expenses (
+    expense_id INT PRIMARY KEY AUTO_INCREMENT,
+    category VARCHAR(50) NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    description TEXT,
+    expense_date DATE NOT NULL,
+    created_by INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(user_id)
+);

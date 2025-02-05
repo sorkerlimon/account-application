@@ -1,26 +1,48 @@
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                               QLabel, QLineEdit, QPushButton, QFrame,
-                               QMessageBox)
+from PyQt6.QtWidgets import (QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, 
+                              QMessageBox, QHBoxLayout, QFrame)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from main_window import MainWindow
+from db import get_db_connection, close_db_connection
+from mysql.connector import Error
+import os
+import mysql.connector
 
 # Valid credentials
 VALID_EMAIL = "1"
 VALID_PASSWORD = "1"
 
-class LoginWindow(QMainWindow):
+class LoginWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.init_ui()
         # Keep a reference to the main window
         self.dashboard = None
 
+    def verify_credentials(self, email, password):
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor(dictionary=True)
+            query = "SELECT user_id, email FROM users WHERE email = %s AND password = %s"
+            cursor.execute(query, (email, password))
+            user = cursor.fetchone()
+            cursor.close()
+            return user
+        except Error as e:
+            print(f"Error verifying credentials: {e}")
+            QMessageBox.critical(
+                self,
+                "Database Error",
+                "Could not verify credentials. Please try again.",
+                QMessageBox.StandardButton.Ok
+            )
+            return None
+
     def init_ui(self):
         self.setWindowTitle("Employee Management System - Login")
         self.setFixedSize(1000, 600)
         self.setStyleSheet("""
-            QMainWindow {
+            QWidget {
                 background-color: white;
             }
             QLabel {
@@ -54,11 +76,10 @@ class LoginWindow(QMainWindow):
         """)
 
         # Create main widget and layout
-        main_widget = QWidget()
-        self.setCentralWidget(main_widget)
-        layout = QHBoxLayout(main_widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        main_layout = QHBoxLayout()
+        self.setLayout(main_layout)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # Left side - Brand/Logo
         left_widget = QWidget()
@@ -190,16 +211,27 @@ class LoginWindow(QMainWindow):
         right_layout.addWidget(form_container)
 
         # Add both sides to main layout
-        layout.addWidget(left_widget)
-        layout.addWidget(right_widget)
+        main_layout.addWidget(left_widget)
+        main_layout.addWidget(right_widget)
 
     def login(self):
         email = self.email.text()
         password = self.password.text()
         
-        if email == VALID_EMAIL and password == VALID_PASSWORD:
-            user_data = (1, "Admin User", VALID_EMAIL)
-            # Create and store the main window reference
+        if not email or not password:
+            QMessageBox.warning(
+                self,
+                "Login Failed",
+                "Please enter both email and password.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+
+        user = self.verify_credentials(email, password)
+        
+        if user:
+            # Create tuple of user data with just user_id and email
+            user_data = (user['user_id'], email, email)  # Using email as name since we don't have name field
             self.dashboard = MainWindow(user_data)
             self.dashboard.show()
             self.hide()
@@ -210,3 +242,7 @@ class LoginWindow(QMainWindow):
                 "Invalid email or password. Please try again.",
                 QMessageBox.StandardButton.Ok
             )
+
+    def closeEvent(self, event):
+        close_db_connection()
+        event.accept()

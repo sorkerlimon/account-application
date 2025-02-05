@@ -1,9 +1,11 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-                           QLabel, QFrame, QTableWidget, QTableWidgetItem,
-                           QDialog, QFormLayout, QLineEdit, QDateEdit, QHeaderView,
-                           QMessageBox, QMenu)
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QTableWidget,
+                           QTableWidgetItem, QPushButton, QHeaderView,
+                           QMessageBox, QMenu, QFrame, QDialog, QFormLayout,
+                           QLineEdit, QDateEdit, QLabel)
 from PyQt6.QtCore import Qt, QDate, QDateTime
-from PyQt6.QtGui import QColor, QIcon, QFont
+from PyQt6.QtGui import QColor, QIcon, QFont, QAction
+from mysql.connector import Error
+from db import get_db_connection
 
 class UserManagement(QWidget):
     def __init__(self, user_data):
@@ -75,7 +77,7 @@ class UserManagement(QWidget):
             }
         """)
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        add_btn.clicked.connect(self.show_add_user_dialog)
+        add_btn.clicked.connect(self.add_user)
         header_layout.addWidget(add_btn)
         layout.addWidget(header)
 
@@ -132,484 +134,483 @@ class UserManagement(QWidget):
         layout.addWidget(table_frame)
 
     def setup_table(self):
-        # Define all columns
+        # Define all columns based on actual database structure
         headers = [
             "ID", "First Name", "Last Name", "Email", "Phone", 
-            "Hire Date", "Status", "Created At", "Actions"
+            "Position", "Hire Date", "Status", "Created At", "Actions"
         ]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        
+
         # Set row and header heights
-        self.table.verticalHeader().setDefaultSectionSize(60)  # Increased row height
-        self.table.horizontalHeader().setFixedHeight(50)  # Fixed header height
-        self.table.verticalHeader().setVisible(False)  # Hide row numbers
-        self.table.setShowGrid(True)  # Show grid lines
+        self.table.verticalHeader().setDefaultSectionSize(60)
+        self.table.horizontalHeader().setFixedHeight(50)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(True)
         
-        # Disable selection
-        self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
-
-        # Sample data
-        data = [
-            ("1", "John", "Doe", "john@example.com", "+1234567890", 
-             "2024-01-15", "Active", "2024-01-15 09:00:00"),
-            ("2", "Jane", "Smith", "jane@example.com", "+1234567891", 
-             "2024-01-20", "Active", "2024-01-20 10:30:00"),
-            ("3", "Bob", "Johnson", "bob@example.com", "+1234567892", 
-             "2024-02-01", "Active", "2024-02-01 11:45:00")
-        ]
-
-        self.table.setRowCount(len(data))
-
-        for row, user in enumerate(data):
-            bg_color = "#f8fafc" if row % 2 else "white"
-
-            # Add data to cells
-            for col, text in enumerate(user):
-                item = QTableWidgetItem(str(text))
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.table.setItem(row, col, item)
-                item.setBackground(QColor(bg_color))
-
-            # Status cell with color
-            status = self.table.item(row, 6)
-            if status.text() == "Active":
-                status.setForeground(QColor("#22c55e"))
-            else:
-                status.setForeground(QColor("#ef4444"))
-
-            # Actions column
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(0, 0, 0, 0)
-            actions_layout.setSpacing(0)
-            
-            action_btn = QPushButton("⋮")
-            action_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    color: #64748b;
-                    border: none;
-                    padding: 0px;
-                    font-size: 20px;
-                    font-weight: bold;
-                    min-width: 24px;
-                    max-width: 24px;
-                    min-height: 24px;
-                    max-height: 24px;
-                    text-align: center;
-                    line-height: 24px;
-                }
-                QPushButton:hover {
-                    background-color: #f1f5f9;
-                    border-radius: 4px;
-                }
-            """)
-            action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            
-            # Create menu for actions
-            menu = QMenu(self)
-            menu.setStyleSheet("""
-                QMenu {
-                    background-color: white;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 8px;
-                    padding: 8px 0px;
-                    min-width: 160px;
-                }
-                QMenu::item {
-                    padding: 12px 24px;
-                    font-size: 14px;
-                }
-                QMenu::item:selected {
-                    background-color: #f1f5f9;
-                    color: #1e293b;
-                }
-            """)
-            
-            edit_action = menu.addAction("✎ Edit")
-            delete_action = menu.addAction("🗑 Delete")
-            
-            edit_action.triggered.connect(lambda checked, r=row: self.edit_user(r))
-            delete_action.triggered.connect(lambda checked, r=row: self.delete_user(r))
-            action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
-            
-            actions_layout.addStretch()
-            actions_layout.addWidget(action_btn)
-            actions_layout.addStretch()
-            
-            self.table.setCellWidget(row, len(headers) - 1, actions_widget)
-
+        # Make table responsive
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        
         # Set column widths
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(0, 80)  # ID
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(1, 150)  # First Name
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(2, 150)  # Last Name
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)  # Email
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 150)  # Phone
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(5, 120)  # Hire Date
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(6, 100)  # Status
-        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(7, 180)  # Created At
-        self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(8, 100)  # Actions
+        column_widths = {
+            0: 60,   # ID
+            1: 120,  # First Name
+            2: 120,  # Last Name
+            3: 200,  # Email (stretch)
+            4: 120,  # Phone
+            5: 120,  # Position
+            6: 100,  # Hire Date
+            7: 80,   # Status
+            8: 120,  # Created At
+            9: 80    # Actions
+        }
+        
+        for col, width in column_widths.items():
+            self.table.setColumnWidth(col, width)
+            if col == 3:  # Make email column stretch
+                self.table.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeMode.Stretch)
+        
+        try:
+            connection = get_db_connection()
+            cursor = connection.cursor()
+            
+            # Updated query to match actual table structure
+            query = """
+                SELECT 
+                    employee_id, 
+                    first_name, 
+                    last_name, 
+                    email, 
+                    phone,
+                    position, 
+                    hire_date, 
+                    status, 
+                    created_at
+                FROM employees
+                ORDER BY employee_id
+            """
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            
+            self.table.setRowCount(len(rows))
+            
+            for row_idx, row_data in enumerate(rows):
+                bg_color = "#f8fafc" if row_idx % 2 else "white"
+                
+                for col, value in enumerate(row_data):
+                    item = QTableWidgetItem(str(value))
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    item.setBackground(QColor(bg_color))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    
+                    # Set status color
+                    if col == 7:  # Status column (updated index)
+                        if value and value.lower() == "active":
+                            item.setForeground(QColor("#22c55e"))
+                        else:
+                            item.setForeground(QColor("#ef4444"))
+                    
+                    self.table.setItem(row_idx, col, item)
+                
+                # Add action button
+                action_widget = QWidget()
+                action_layout = QHBoxLayout(action_widget)
+                action_layout.setContentsMargins(0, 0, 0, 0)
+                action_layout.setSpacing(0)
+                
+                action_btn = QPushButton("⋮")
+                action_btn.setStyleSheet("""
+                    QPushButton {
+                        background-color: transparent;
+                        color: #64748b;
+                        border: none;
+                        padding: 0px;
+                        font-size: 20px;
+                        font-weight: bold;
+                        min-width: 24px;
+                        max-width: 24px;
+                        min-height: 24px;
+                        max-height: 24px;
+                        text-align: center;
+                        line-height: 24px;
+                    }
+                    QPushButton:hover {
+                        background-color: #f1f5f9;
+                        border-radius: 4px;
+                    }
+                """)
+                action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                
+                menu = QMenu(self)
+                menu.setStyleSheet("""
+                    QMenu {
+                        background-color: white;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 8px 0px;
+                    }
+                    QMenu::item {
+                        padding: 8px 24px;
+                        font-size: 14px;
+                    }
+                    QMenu::item:selected {
+                        background-color: #f1f5f9;
+                        color: #1e293b;
+                    }
+                """)
+                
+                # Create actions
+                edit_action = QAction("✎ Edit", self)
+                delete_action = QAction("🗑 Delete", self)
+                
+                # Connect actions directly
+                edit_action.triggered.connect(lambda checked, r=row_idx: self.edit_user(r))
+                delete_action.triggered.connect(lambda checked, r=row_idx: self.delete_user(r))
+                
+                # Add actions to menu
+                menu.addAction(edit_action)
+                menu.addAction(delete_action)
+                
+                # Connect button to show menu
+                action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
+                
+                action_layout.addStretch()
+                action_layout.addWidget(action_btn)
+                action_layout.addStretch()
+                
+                self.table.setCellWidget(row_idx, len(row_data), action_widget)
+            
+            cursor.close()
+            connection.close()
+            
+        except Error as e:
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"Failed to fetch employee data: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
     def show_action_menu(self, button, menu):
-        """Show the action menu below the Edit button"""
+        """Show the action menu below the button"""
         pos = button.mapToGlobal(button.rect().bottomLeft())
         menu.exec(pos)
 
-    def edit_user(self, row):
-        dialog = self.create_user_dialog("Edit User")
-        
-        # Pre-fill the form with existing data
-        first_name = self.table.item(row, 1).text()
-        last_name = self.table.item(row, 2).text()
-        email = self.table.item(row, 3).text()
-        phone = self.table.item(row, 4).text()
-        hire_date = QDate.fromString(self.table.item(row, 5).text(), "yyyy-MM-dd")
-        
-        # Set existing values
-        dialog.findChild(QLineEdit, "first_name").setText(first_name)
-        dialog.findChild(QLineEdit, "last_name").setText(last_name)
-        dialog.findChild(QLineEdit, "email").setText(email)
-        dialog.findChild(QLineEdit, "phone").setText(phone)
-        dialog.findChild(QDateEdit, "hire_date").setDate(hire_date)
-        
-        if dialog.exec():
-            # Update the table with new values
-            first_name = dialog.findChild(QLineEdit, "first_name").text()
-            last_name = dialog.findChild(QLineEdit, "last_name").text()
-            email = dialog.findChild(QLineEdit, "email").text()
-            phone = dialog.findChild(QLineEdit, "phone").text()
-            hire_date = dialog.findChild(QDateEdit, "hire_date").date().toString("yyyy-MM-dd")
-            
-            # Update cells
-            self.table.item(row, 1).setText(first_name)
-            self.table.item(row, 2).setText(last_name)
-            self.table.item(row, 3).setText(email)
-            self.table.item(row, 4).setText(phone)
-            self.table.item(row, 5).setText(hire_date)
-
-            # Keep background color consistent
-            bg_color = "#f8fafc" if row % 2 else "white"
-            for col in range(self.table.columnCount() - 1):  # Exclude actions column
-                self.table.item(row, col).setBackground(QColor(bg_color))
-
     def delete_user(self, row):
-        dialog = QMessageBox(self)
-        dialog.setWindowTitle("Confirm Delete")
-        
-        # Get user's full name
-        first_name = self.table.item(row, 1).text()
-        last_name = self.table.item(row, 2).text()
-        full_name = f"{first_name} {last_name}"
-        
-        # Set custom text
-        dialog.setText(f"Are you sure you want to delete {full_name}?")
-        
-        # Set icon
-        dialog.setIcon(QMessageBox.Icon.Question)
-        
-        # Set buttons
-        yes_btn = QPushButton("Yes")
-        no_btn = QPushButton("No")
-        
-        dialog.addButton(yes_btn, QMessageBox.ButtonRole.YesRole)
-        dialog.addButton(no_btn, QMessageBox.ButtonRole.NoRole)
-        dialog.setDefaultButton(no_btn)
-        
-        # Style the dialog
-        dialog.setStyleSheet("""
-            QMessageBox {
-                background-color: white;
-                border-radius: 8px;
-            }
-            QLabel {
-                color: #1e293b;
-                font-size: 14px;
-                padding: 0px;
-            }
-            QLabel#qt_msgbox_label {
-                min-width: 200px;
-                padding: 0px 20px;
-            }
-            QLabel#qt_msgboxex_icon_label {
-                padding: 0px;
-                margin-left: 20px;
-            }
-            QPushButton {
-                background-color: transparent;
-                border: none;
-                color: #0ea5e9;
-                padding: 8px 16px;
-                font-size: 14px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #f1f5f9;
-            }
-        """)
-        
-        # Set custom icon size
-        icon = dialog.findChild(QLabel, "qt_msgboxex_icon_label")
-        if icon:
-            icon.setFixedSize(32, 32)
-        
-        # Center the text
-        text_label = dialog.findChild(QLabel, "qt_msgbox_label")
-        if text_label:
-            text_label.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        
-        # Execute dialog
-        if dialog.exec() == 0:  # Yes clicked
-            self.table.removeRow(row)
+        try:
+            # Get user details
+            user_id = int(self.table.item(row, 0).text())
+            name = f"{self.table.item(row, 1).text()} {self.table.item(row, 2).text()}"
+            
+            # Show confirmation dialog
+            reply = QMessageBox.question(
+                self,
+                "Confirm Delete",
+                f"Are you sure you want to delete {name}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                # Connect to database
+                connection = get_db_connection()
+                cursor = connection.cursor()
+                
+                # Execute delete query
+                query = "DELETE FROM employees WHERE employee_id = %s"
+                cursor.execute(query, (user_id,))
+                
+                # Commit the transaction
+                connection.commit()
+                
+                # Close database connections
+                cursor.close()
+                connection.close()
+                
+                # Show success message
+                self.show_success_message("User deleted successfully!")
+                
+                # Refresh the table
+                self.setup_table()
+                
+        except Error as e:
+            print(f"Database Error: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Database Error",
+                f"Failed to delete user: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
+        except Exception as e:
+            print(f"Unexpected Error: {str(e)}")
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An unexpected error occurred: {str(e)}",
+                QMessageBox.StandardButton.Ok
+            )
 
-    def show_add_user_dialog(self):
-        dialog = self.create_user_dialog("Add New User")
-        
-        if dialog.exec():
-            # Get values from form
-            first_name = dialog.findChild(QLineEdit, "first_name").text()
-            last_name = dialog.findChild(QLineEdit, "last_name").text()
-            email = dialog.findChild(QLineEdit, "email").text()
-            phone = dialog.findChild(QLineEdit, "phone").text()
-            hire_date = dialog.findChild(QDateEdit, "hire_date").date().toString("yyyy-MM-dd")
-            
-            # Get current timestamp for Created At
-            current_time = QDateTime.currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
-            
-            row = self.table.rowCount()
-            self.table.insertRow(row)
-            
-            # Add data to cells
-            data = [
-                str(row + 1),  # ID
-                first_name,
-                last_name,
-                email,
-                phone,
-                hire_date,
-                "Active",  # Default status
-                current_time
-            ]
-            
-            for col, text in enumerate(data):
-                item = QTableWidgetItem(text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                
-                # Set background color based on row
-                bg_color = "#f8fafc" if row % 2 else "white"
-                item.setBackground(QColor(bg_color))
-                
-                # Set status color
-                if col == 6:  # Status column
-                    item.setForeground(QColor("#22c55e"))
-                
-                self.table.setItem(row, col, item)
-            
-            # Actions column for new row
-            actions_widget = QWidget()
-            actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(0, 0, 0, 0)
-            actions_layout.setSpacing(0)
-            
-            action_btn = QPushButton("⋮")
-            action_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: transparent;
-                    color: #64748b;
-                    border: none;
-                    padding: 0px;
-                    font-size: 20px;
-                    font-weight: bold;
-                    min-width: 24px;
-                    max-width: 24px;
-                    min-height: 24px;
-                    max-height: 24px;
-                    text-align: center;
-                    line-height: 24px;
-                }
-                QPushButton:hover {
-                    background-color: #f1f5f9;
-                    border-radius: 4px;
-                }
-            """)
-            action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            
-            # Create menu for actions
-            menu = QMenu(self)
-            menu.setStyleSheet("""
-                QMenu {
-                    background-color: white;
-                    border: 1px solid #e2e8f0;
-                    border-radius: 8px;
-                    padding: 8px 0px;
-                    min-width: 160px;
-                }
-                QMenu::item {
-                    padding: 12px 24px;
-                    font-size: 14px;
-                }
-                QMenu::item:selected {
-                    background-color: #f1f5f9;
-                    color: #1e293b;
-                }
-            """)
-            
-            edit_action = menu.addAction("✎ Edit")
-            delete_action = menu.addAction("🗑 Delete")
-            
-            edit_action.triggered.connect(lambda checked, r=row: self.edit_user(r))
-            delete_action.triggered.connect(lambda checked, r=row: self.delete_user(r))
-            action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
-            
-            actions_layout.addStretch()
-            actions_layout.addWidget(action_btn)
-            actions_layout.addStretch()
-            
-            self.table.setCellWidget(row, len(data), actions_widget)
-
-    def create_user_dialog(self, title):
+    def create_user_dialog(self, is_edit=False):
         dialog = QDialog(self)
-        dialog.setWindowTitle(title)
+        dialog.setWindowTitle("Edit User" if is_edit else "Add New User")
         dialog.setFixedWidth(400)
         dialog.setStyleSheet("""
             QDialog {
                 background-color: white;
-                border-radius: 8px;
+            }
+            QLabel {
+                font-size: 14px;
+                color: #1e293b;
+                font-weight: 500;
             }
             QLineEdit, QDateEdit {
-                border: none;
-                border-bottom: 2px solid #e2e8f0;
-                padding: 8px 0px;
+                padding: 8px;
+                border: 1px solid #e2e8f0;
+                border-radius: 6px;
                 font-size: 14px;
-                width: 100%;
+                min-height: 24px;
             }
             QLineEdit:focus, QDateEdit:focus {
-                border-bottom: 2px solid #0ea5e9;
+                border: 2px solid #3b82f6;
             }
-            QDateEdit::drop-down {
-                border: none;
-                width: 20px;
-            }
-            QDateEdit::down-arrow {
-                width: 12px;
-                height: 12px;
-                margin-right: 4px;
-            }
-        """)
-        
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(24, 24, 24, 0)
-        layout.setSpacing(24)
-
-        # Title
-        title_label = QLabel(title)
-        title_label.setStyleSheet("""
-            font-size: 16px;
-            font-weight: bold;
-            color: #1e293b;
-            margin-bottom: 8px;
-        """)
-        layout.addWidget(title_label)
-
-        # Form
-        form_layout = QVBoxLayout()
-        form_layout.setSpacing(24)
-        form_layout.setContentsMargins(0, 0, 0, 24)
-        
-        # Input fields with labels
-        fields = [
-            ("First Name", "first_name"),
-            ("Last Name", "last_name"),
-            ("Email", "email"),
-            ("Phone", "phone"),
-            ("Hire Date", "hire_date")
-        ]
-        
-        for label_text, field_name in fields:
-            field_container = QVBoxLayout()
-            field_container.setSpacing(8)
-            
-            label = QLabel(label_text)
-            label.setStyleSheet("""
-                color: #475569;
-                font-size: 13px;
-                font-weight: 500;
-            """)
-            
-            if field_name == "hire_date":
-                input_widget = QDateEdit()
-                input_widget.setDate(QDate.currentDate())
-                input_widget.setDisplayFormat("yyyy-MM-dd")
-                input_widget.setCalendarPopup(True)
-            else:
-                input_widget = QLineEdit()
-            
-            input_widget.setObjectName(field_name)
-            input_widget.setFixedHeight(36)
-            
-            field_container.addWidget(label)
-            field_container.addWidget(input_widget)
-            form_layout.addLayout(field_container)
-        
-        layout.addLayout(form_layout)
-        
-        # Bottom buttons section
-        button_container = QFrame()
-        button_container.setStyleSheet("""
-            QFrame {
-                background-color: #f8fafc;
-                border-top: 1px solid #e2e8f0;
-            }
-        """)
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(24, 16, 24, 16)
-        button_layout.setSpacing(12)
-        
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedSize(170, 36)
-        cancel_btn.setStyleSheet("""
             QPushButton {
-                background-color: #f1f5f9;
-                color: #475569;
-                border: none;
-                border-radius: 6px;
-                font-weight: 500;
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-            }
-        """)
-        
-        save_btn = QPushButton("Save")
-        save_btn.setFixedSize(170, 36)
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #0ea5e9;
+                background-color: #3b82f6;
                 color: white;
                 border: none;
+                padding: 8px 16px;
                 border-radius: 6px;
-                font-weight: 500;
+                font-weight: bold;
+                min-width: 100px;
             }
             QPushButton:hover {
-                background-color: #0284c7;
+                background-color: #2563eb;
+            }
+            QPushButton#cancelButton {
+                background-color: #e2e8f0;
+                color: #1e293b;
+            }
+            QPushButton#cancelButton:hover {
+                background-color: #cbd5e1;
+            }
+        """)
+
+        layout = QVBoxLayout(dialog)
+        form_layout = QFormLayout()
+        form_layout.setSpacing(15)
+
+        # Create input fields
+        fields = {
+            'first_name': QLineEdit(),
+            'last_name': QLineEdit(),
+            'email': QLineEdit(),
+            'phone': QLineEdit(),
+            'position': QLineEdit(),
+            'hire_date': QDateEdit()
+        }
+
+        # Set object names for later reference
+        for name, widget in fields.items():
+            widget.setObjectName(name)
+
+        # Configure date field
+        fields['hire_date'].setCalendarPopup(True)
+        fields['hire_date'].setDate(QDate.currentDate())
+
+        # Add fields to form
+        form_layout.addRow("First Name:", fields['first_name'])
+        form_layout.addRow("Last Name:", fields['last_name'])
+        form_layout.addRow("Email:", fields['email'])
+        form_layout.addRow("Phone:", fields['phone'])
+        form_layout.addRow("Position:", fields['position'])
+        form_layout.addRow("Hire Date:", fields['hire_date'])
+
+        # Add form to main layout
+        layout.addLayout(form_layout)
+
+        # Button container
+        button_container = QHBoxLayout()
+        button_container.setSpacing(10)
+
+        # Create buttons
+        save_button = QPushButton("Save")
+        cancel_button = QPushButton("Cancel")
+        cancel_button.setObjectName("cancelButton")
+
+        # Add buttons to container
+        button_container.addWidget(cancel_button)
+        button_container.addWidget(save_button)
+
+        # Add button container to main layout
+        layout.addSpacing(20)
+        layout.addLayout(button_container)
+
+        # Connect buttons
+        save_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+
+        return dialog
+
+    def add_user(self):
+        dialog = self.create_user_dialog()
+        
+        if dialog.exec():
+            try:
+                connection = get_db_connection()
+                cursor = connection.cursor()
+
+                # Get values from dialog
+                first_name = dialog.findChild(QLineEdit, "first_name").text()
+                last_name = dialog.findChild(QLineEdit, "last_name").text()
+                email = dialog.findChild(QLineEdit, "email").text()
+                phone = dialog.findChild(QLineEdit, "phone").text()
+                position = dialog.findChild(QLineEdit, "position").text()
+                hire_date = dialog.findChild(QDateEdit, "hire_date").date().toString("yyyy-MM-dd")
+
+                # Insert new user
+                query = """
+                    INSERT INTO employees (
+                        first_name, last_name, email, phone, 
+                        position, hire_date, status, created_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                """
+                values = (
+                    first_name, last_name, email, phone,
+                    position, hire_date, "active"
+                )
+                
+                cursor.execute(query, values)
+                connection.commit()
+                cursor.close()
+
+                # Refresh table
+                self.setup_table()
+
+                self.show_success_message("User added successfully!")
+
+            except Error as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to add user: {str(e)}",
+                    QMessageBox.StandardButton.Ok
+                )
+
+    def edit_user(self, row):
+        dialog = self.create_user_dialog(is_edit=True)
+        
+        # Get current values
+        user_id = self.table.item(row, 0).text()
+        first_name = self.table.item(row, 1).text()
+        last_name = self.table.item(row, 2).text()
+        email = self.table.item(row, 3).text()
+        phone = self.table.item(row, 4).text()
+        position = self.table.item(row, 5).text()
+        hire_date = QDate.fromString(self.table.item(row, 6).text(), "yyyy-MM-dd")
+        
+        # Set values in dialog
+        dialog.findChild(QLineEdit, "first_name").setText(first_name)
+        dialog.findChild(QLineEdit, "last_name").setText(last_name)
+        dialog.findChild(QLineEdit, "email").setText(email)
+        dialog.findChild(QLineEdit, "phone").setText(phone)
+        dialog.findChild(QLineEdit, "position").setText(position)
+        dialog.findChild(QDateEdit, "hire_date").setDate(hire_date)
+        
+        if dialog.exec():
+            try:
+                connection = get_db_connection()
+                cursor = connection.cursor()
+
+                # Get updated values
+                first_name = dialog.findChild(QLineEdit, "first_name").text()
+                last_name = dialog.findChild(QLineEdit, "last_name").text()
+                email = dialog.findChild(QLineEdit, "email").text()
+                phone = dialog.findChild(QLineEdit, "phone").text()
+                position = dialog.findChild(QLineEdit, "position").text()
+                hire_date = dialog.findChild(QDateEdit, "hire_date").date().toString("yyyy-MM-dd")
+
+                # Update user
+                query = """
+                    UPDATE employees SET 
+                        first_name = %s,
+                        last_name = %s,
+                        email = %s,
+                        phone = %s,
+                        position = %s,
+                        hire_date = %s
+                    WHERE employee_id = %s
+                """
+                values = (
+                    first_name, last_name, email, phone,
+                    position, hire_date, user_id
+                )
+                
+                cursor.execute(query, values)
+                connection.commit()
+                cursor.close()
+
+                # Refresh table
+                self.setup_table()
+
+                self.show_success_message("User updated successfully!")
+
+            except Error as e:
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to update user: {str(e)}",
+                    QMessageBox.StandardButton.Ok
+                )
+
+    def show_success_message(self, message):
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Success")
+        msg.setText(message)
+        msg.setIcon(QMessageBox.Icon.Information)
+        
+        # Create and style OK button
+        ok_button = QPushButton("OK")
+        msg.addButton(ok_button, QMessageBox.ButtonRole.AcceptRole)
+        
+        # Style the message box
+        msg.setStyleSheet("""
+            QMessageBox {
+                background-color: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 12px;
+                min-width: 420px;
+            }
+            QLabel {
+                color: #1e293b;
+                font-size: 14px;
+                padding: 20px;
+                font-weight: 500;
+            }
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                padding: 10px 20px;
+                border-radius: 8px;
+                font-weight: bold;
+                min-width: 120px;
+                margin: 0px 20px 20px 20px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+            QLabel#qt_msgbox_label { 
+                padding-left: 15px;
+            }
+            QLabel#qt_msgboxex_icon_label {
+                padding: 20px 0px 20px 20px;
             }
         """)
         
-        button_layout.addWidget(cancel_btn)
-        button_layout.addWidget(save_btn)
-        layout.addWidget(button_container)
+        # Set icon size
+        icon = msg.findChild(QLabel, "qt_msgboxex_icon_label")
+        if icon:
+            icon.setFixedSize(40, 40)
         
-        save_btn.clicked.connect(dialog.accept)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        return dialog
+        msg.exec()

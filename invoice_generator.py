@@ -276,93 +276,111 @@ class InvoiceViewer(QDialog):
         close_btn.clicked.connect(self.close)
         main_layout.addLayout(button_layout)
 
-    def generate_pdf(self):
-        # Ask user where to save the PDF
-        file_name = f"Invoice_{self.invoice_data['id']}.pdf"
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save Invoice",
-            file_name,
-            "PDF Files (*.pdf)"
-        )
+    def generate_pdf(self, show_save_dialog=True):
+        # Create a temporary file path for sending emails
+        temp_path = os.path.join(os.path.dirname(__file__), f"temp_Invoice_{self.invoice_data['id']}.pdf")
         
-        if file_path:
-            # Create PDF
-            c = canvas.Canvas(file_path, pagesize=letter)
-            width, height = letter
+        # Create PDF
+        c = canvas.Canvas(temp_path, pagesize=letter)
+        width, height = letter
 
-            # Company Info
-            c.setFont("Helvetica-Bold", 24)
-            c.drawString(50, height - 50, "EMS Company")
-            
-            c.setFont("Helvetica", 12)
-            c.drawString(50, height - 70, "123 Business Street")
-            c.drawString(50, height - 85, "City, State 12345")
-            c.drawString(50, height - 100, "Phone: (555) 123-4567")
+        # Company Info
+        c.setFont("Helvetica-Bold", 24)
+        c.drawString(50, height - 50, "EMS Company")
+        
+        c.setFont("Helvetica", 12)
+        c.drawString(50, height - 70, "123 Business Street")
+        c.drawString(50, height - 85, "City, State 12345")
+        c.drawString(50, height - 100, "Phone: (555) 123-4567")
 
-            # Invoice Title and Details
-            c.setFont("Helvetica-Bold", 32)
-            c.setFillColor(colors.HexColor('#0ea5e9'))
-            c.drawString(400, height - 50, "INVOICE")
-            
-            c.setFillColor(colors.black)
-            c.setFont("Helvetica", 12)
-            c.drawString(400, height - 70, f"Invoice #: {self.invoice_data['id']}")
-            c.drawString(400, height - 85, f"Date: {self.invoice_data['month']} {self.invoice_data['year']}")
+        # Invoice Title and Details
+        c.setFont("Helvetica-Bold", 32)
+        c.setFillColor(colors.HexColor('#0ea5e9'))
+        c.drawString(400, height - 50, "INVOICE")
+        
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica", 12)
+        c.drawString(400, height - 70, f"Invoice #: {self.invoice_data['id']}")
+        c.drawString(400, height - 85, f"Date: {self.invoice_data['month']} {self.invoice_data['year']}")
 
-            # Separator Line
-            c.line(50, height - 120, width - 50, height - 120)
+        # Separator Line
+        c.line(50, height - 120, width - 50, height - 120)
 
-            # Bill To Section
-            c.setFont("Helvetica-Bold", 14)
-            c.drawString(50, height - 150, "Bill To:")
-            c.setFont("Helvetica", 12)
-            c.drawString(50, height - 170, self.invoice_data['employee'])
+        # Bill To Section
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(50, height - 150, "Bill To:")
+        c.setFont("Helvetica", 12)
+        c.drawString(50, height - 170, self.invoice_data['employee'])
 
-            # Invoice Details
-            y = height - 220
-            
-            # Headers
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(50, y, "Description")
-            c.drawString(450, y, "Amount")
-            
-            # Separator
-            y -= 10
-            c.line(50, y, width - 50, y)
-            
-            # Items
-            y -= 25
-            c.setFont("Helvetica", 12)
-            
-            # Base Salary
-            c.drawString(50, y, "Base Salary")
-            c.drawString(450, y, self.invoice_data['amount'])
-            
-            # Bonus
-            y -= 25
-            c.drawString(50, y, "Bonus")
-            c.drawString(450, y, self.invoice_data['bonus'])
-            
-            # Total Line
-            y -= 20
-            c.line(50, y, width - 50, y)
-            
-            # Total Amount
-            y -= 25
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(50, y, "Total")
-            total = float(self.invoice_data['amount'].replace('$','').replace(',','')) + \
-                   float(self.invoice_data['bonus'].replace('$','').replace(',',''))
-            c.drawString(450, y, f"${total:,.2f}")
+        # Invoice Details
+        y = height - 220
+        
+        # Headers
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Description")
+        c.drawString(450, y, "Amount")
+        
+        # Separator
+        y -= 10
+        c.line(50, y, width - 50, y)
+        
+        # Items
+        y -= 25
+        c.setFont("Helvetica", 12)
+        
+        # Base Salary
+        c.drawString(50, y, "Base Salary")
+        c.drawString(450, y, self.invoice_data['amount'])
+        
+        # Bonus
+        y -= 25
+        c.drawString(50, y, "Bonus")
+        c.drawString(450, y, self.invoice_data['bonus'])
+        
+        # Total Line
+        y -= 20
+        c.line(50, y, width - 50, y)
+        
+        # Total Amount
+        y -= 25
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Total")
+        total = float(self.invoice_data['amount'].replace('$','').replace(',','')) + \
+               float(self.invoice_data['bonus'].replace('$','').replace(',',''))
+        c.drawString(450, y, f"${total:,.2f}")
 
-            # Status
-            y -= 50
-            c.setFont("Helvetica-Bold", 12)
-            c.drawString(50, y, "Status:")
-            c.setFont("Helvetica", 12)
-            status_color = '#22c55e' if self.invoice_data['status'] == 'Paid' else '#f97316'
-            c.setFillColor(colors.HexColor(status_color))
-            c.drawString(100, y, self.invoice_data['status'])
+        # Status
+        y -= 50
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(50, y, "Status:")
+        c.setFont("Helvetica", 12)
+        status_color = '#22c55e' if self.invoice_data['status'] == 'Paid' else '#f97316'
+        c.setFillColor(colors.HexColor(status_color))
+        c.drawString(100, y, self.invoice_data['status'])
 
-            c.save() 
+        c.save()
+        
+        # If this was called from the UI button and show_save_dialog is True
+        if self.parent() and show_save_dialog:
+            file_name = f"Invoice_{self.invoice_data['id']}.pdf"
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Invoice",
+                file_name,
+                "PDF Files (*.pdf)"
+            )
+            
+            if file_path:
+                # Copy the temp file to the selected location
+                import shutil
+                shutil.copy2(temp_path, file_path)
+                
+                # Clean up temp file
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+                    
+                return file_path
+        
+        return temp_path

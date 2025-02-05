@@ -1,9 +1,15 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                            QLabel, QFrame, QTableWidget, QTableWidgetItem,
-                           QComboBox, QCalendarWidget, QMenu, QHeaderView)
+                           QComboBox, QCalendarWidget, QMenu, QHeaderView,
+                           QMessageBox)
 from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QColor
 from invoice_generator import InvoiceViewer
+from db import (get_employees, get_invoices, create_invoice, 
+               update_invoice_status, get_employee_salary)
+from datetime import datetime, timedelta
+from email_utils import send_invoice_email
+import os
 
 class MonthYearPicker(QFrame):
     def __init__(self, parent=None):
@@ -143,10 +149,15 @@ class InvoiceManagement(QWidget):
         employee_group = QHBoxLayout()
         employee_group.setSpacing(12)
         employee_label = QLabel("Employee:")
-        employee_combo = QComboBox()
-        employee_combo.setObjectName("employee_combo")
-        employee_combo.addItems(["John Doe", "Jane Smith", "Bob Johnson"])
-        employee_combo.setStyleSheet("""
+        self.employee_combo = QComboBox()
+        self.employee_combo.setObjectName("employee_combo")
+        
+        # Load employees from database
+        self.employees = get_employees()
+        for employee in self.employees:
+            self.employee_combo.addItem(employee['full_name'], employee['employee_id'])
+            
+        self.employee_combo.setStyleSheet("""
             QComboBox {
                 padding: 8px 16px;
                 border: 1px solid #e2e8f0;
@@ -181,7 +192,7 @@ class InvoiceManagement(QWidget):
             }
         """)
         employee_group.addWidget(employee_label)
-        employee_group.addWidget(employee_combo)
+        employee_group.addWidget(self.employee_combo)
         controls_layout.addLayout(employee_group)
         
         # Date picker group
@@ -268,7 +279,7 @@ class InvoiceManagement(QWidget):
         layout.addWidget(table_frame)
 
     def setup_table(self):
-        headers = ["Invoice ID", "Employee", "Month", "Year", "Amount", "Bonus", "Status", "Actions"]
+        headers = ["Invoice ID", "Employee", "Email", "Month", "Year", "Amount", "Bonus", "Status", "Actions"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -280,46 +291,65 @@ class InvoiceManagement(QWidget):
         # Disable selection
         self.table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         
-        # Sample data
-        data = [
-            ("INV-001", "John Doe", "January", "2024", "$5,000", "$500", "Paid"),
-            ("INV-002", "Jane Smith", "January", "2024", "$4,500", "$300", "Pending"),
-            ("INV-003", "Bob Johnson", "January", "2024", "$4,800", "$400", "Paid")
-        ]
+        # Get data from database
+        invoices = get_invoices()
+        self.table.setRowCount(len(invoices))
         
-        self.table.setRowCount(len(data))
-        
-        for row, (id_, name, month, year, amount, bonus, status) in enumerate(data):
+        for row, invoice in enumerate(invoices):
             bg_color = "#f8fafc" if row % 2 else "white"
             
-            # Add data to cells including bonus
-            for col, text in enumerate([id_, name, month, year, amount, bonus]):
-                item = QTableWidgetItem(text)
+            # Extract month and year from issue_date
+            issue_date = invoice['issue_date']
+            month = issue_date.strftime("%B")
+            year = issue_date.strftime("%Y")
+            
+            # Format amount and bonus with currency symbol
+            amount = f"${invoice['amount']:,.2f}"
+            bonus = f"${invoice['bonus']:,.2f}" if invoice['bonus'] else "$0.00"
+            
+            # Add data to cells
+            data = [
+                invoice['invoice_number'],
+                invoice['employee_name'],
+                invoice['employee_email'],
+                month,
+                year,
+                amount,
+                bonus
+            ]
+            
+            for col, text in enumerate(data):
+                item = QTableWidgetItem(str(text))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                # Store invoice_id as item data for later use
+                if col == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, invoice['invoice_id'])
                 self.table.setItem(row, col, item)
                 item.setBackground(QColor(bg_color))
             
-            # Status label (now at column 6)
+            # Status label
             status_widget = QWidget()
             status_layout = QHBoxLayout(status_widget)
             status_layout.setContentsMargins(8, 0, 8, 0)
             status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             
+            status = invoice['status'].capitalize()
             status_label = QLabel(status)
+            status_color = '#22c55e' if status == 'Paid' else '#f97316'
             status_label.setStyleSheet(f"""
                 QLabel {{
                     color: white;
                     padding: 6px 12px;
                     border-radius: 4px;
                     font-weight: 500;
-                    background-color: {('#22c55e' if status == 'Paid' else '#f97316')};
+                    background-color: {status_color};
                 }}
             """)
             status_layout.addWidget(status_label)
-            self.table.setCellWidget(row, 6, status_widget)
+            self.table.setCellWidget(row, 7, status_widget)
             
-            # Actions column (now at column 7)
+            # Actions column
             actions_widget = QWidget()
             actions_layout = QHBoxLayout(actions_widget)
             actions_layout.setContentsMargins(0, 0, 0, 0)
@@ -370,17 +400,19 @@ class InvoiceManagement(QWidget):
             
             view_action = menu.addAction("👁 View")
             download_action = menu.addAction("⬇ Download")
-            if status == "Pending":
+            send_action = menu.addAction("📧 Send Email")
+            if status == "Draft":
                 mark_paid_action = menu.addAction("✓ Mark as Paid")
                 mark_paid_action.triggered.connect(lambda checked, r=row: self.mark_as_paid(r))
             
             # Connect actions
             view_action.triggered.connect(lambda checked, r=row: self.show_invoice_viewer(r))
             download_action.triggered.connect(lambda checked, r=row: self.download_invoice(r))
+            send_action.triggered.connect(lambda checked, r=row: self.send_invoice_email(r))
             action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
             
             actions_layout.addWidget(action_btn)
-            self.table.setCellWidget(row, 7, actions_widget)
+            self.table.setCellWidget(row, 8, actions_widget)
 
         # Make columns responsive
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -388,23 +420,25 @@ class InvoiceManagement(QWidget):
         
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)  # Employee
         
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(2, 120)  # Month
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)  # Email
         
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(3, 100)  # Year
+        self.table.setColumnWidth(3, 120)  # Month
         
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 120)  # Amount
+        self.table.setColumnWidth(4, 100)  # Year
         
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(5, 100)  # Bonus
+        self.table.setColumnWidth(5, 120)  # Amount
         
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(6, 120)  # Status
+        self.table.setColumnWidth(6, 100)  # Bonus
         
         self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(7, 100)  # Actions
+        self.table.setColumnWidth(7, 120)  # Status
+        
+        self.table.horizontalHeader().setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(8, 100)  # Actions
 
         # Make table stretch to fill the frame
         self.table.horizontalHeader().setStretchLastSection(False)
@@ -415,11 +449,11 @@ class InvoiceManagement(QWidget):
         invoice_data = {
             'id': self.table.item(row, 0).text(),
             'employee': self.table.item(row, 1).text(),
-            'month': self.table.item(row, 2).text(),
-            'year': self.table.item(row, 3).text(),
-            'amount': self.table.item(row, 4).text(),
-            'bonus': self.table.item(row, 5).text(),
-            'status': self.table.cellWidget(row, 6).findChild(QLabel).text()
+            'month': self.table.item(row, 3).text(),
+            'year': self.table.item(row, 4).text(),
+            'amount': self.table.item(row, 5).text(),
+            'bonus': self.table.item(row, 6).text(),
+            'status': self.table.cellWidget(row, 7).findChild(QLabel).text()
         }
         viewer = InvoiceViewer(invoice_data, self)
         viewer.exec()
@@ -430,206 +464,132 @@ class InvoiceManagement(QWidget):
         menu.exec(pos)
 
     def generate_new_invoice(self):
-        # Get selected values
-        employee = self.findChild(QComboBox, "employee_combo").currentText()
-        month = self.findChild(QFrame, "date_picker").month_combo.currentText()
-        year = self.findChild(QFrame, "date_picker").year_combo.currentText()
-        
-        # Generate new invoice ID
-        last_row = self.table.rowCount()
-        new_id = f"INV-{str(last_row + 1).zfill(3)}"
-        
-        # Sample amount and bonus (you can modify this logic)
-        amount = "$5,000"
-        bonus = "$500"
-        status = "Pending"
-        
-        # Insert new row
-        self.table.insertRow(last_row)
-        
-        # Add data to cells
-        data = [new_id, employee, month, year, amount, bonus]
-        for col, text in enumerate(data):
-            item = QTableWidgetItem(text)
-            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(last_row, col, item)
+        # Get selected employee
+        employee_id = self.employee_combo.currentData()
+        if not employee_id:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "No employee selected",
+                QMessageBox.StandardButton.Ok
+            )
+            return
             
-        # Status cell
-        status_widget = QWidget()
-        status_layout = QHBoxLayout(status_widget)
-        status_layout.setContentsMargins(8, 0, 8, 0)
-        status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Get selected month and year
+        month = self.findChild(QFrame, "date_picker").month_combo.currentText()
+        year = int(self.findChild(QFrame, "date_picker").year_combo.currentText())
         
-        status_label = QLabel(status)
-        status_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-weight: 500;
-                background-color: #f97316;
-            }
-        """)
-        status_layout.addWidget(status_label)
-        self.table.setCellWidget(last_row, 6, status_widget)
+        # Convert month name to number (1-12)
+        month_num = datetime.strptime(month, "%B").month
         
-        # Actions cell
-        actions_widget = QWidget()
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Create issue date and due date
+        issue_date = datetime(year, month_num, 1)  # First day of month
+        due_date = issue_date + timedelta(days=30)  # Due in 30 days
         
-        action_btn = QPushButton("⋮")
-        action_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f1f5f9;
-                color: #1e293b;
-                border: none;
-                border-radius: 4px;
-                padding: 0px;
-                font-size: 24px;
-                font-weight: bold;
-                min-width: 36px;
-                max-width: 36px;
-                min-height: 36px;
-                max-height: 36px;
-                text-align: center;
-                line-height: 36px;
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-            }
-        """)
-        action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Get employee's salary information
+        salary_info = get_employee_salary(employee_id)
+        if not salary_info:
+            QMessageBox.warning(
+                self,
+                "No Salary Information",
+                f"No salary information found for this employee. Please set up the salary first.",
+                QMessageBox.StandardButton.Ok
+            )
+            return
+            
+        # Create new invoice
+        invoice_id = create_invoice(
+            employee_id=employee_id,
+            amount=salary_info['base_salary'],
+            issue_date=issue_date,
+            due_date=due_date
+        )
         
-        # Create menu for actions
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                padding: 8px 0px;
-                min-width: 160px;
-            }
-            QMenu::item {
-                padding: 12px 24px;
-                font-size: 14px;
-            }
-            QMenu::item:selected {
-                background-color: #f1f5f9;
-                color: #1e293b;
-            }
-        """)
-        
-        view_action = menu.addAction("👁 View")
-        download_action = menu.addAction("⬇ Download")
-        mark_paid_action = menu.addAction("✓ Mark as Paid")
-        
-        # Connect actions
-        view_action.triggered.connect(lambda checked, r=last_row: self.show_invoice_viewer(r))
-        download_action.triggered.connect(lambda checked, r=last_row: self.download_invoice(r))
-        mark_paid_action.triggered.connect(lambda checked, r=last_row: self.mark_as_paid(last_row))
-        action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
-        
-        actions_layout.addWidget(action_btn)
-        self.table.setCellWidget(last_row, 7, actions_widget)
+        if invoice_id:
+            # Refresh the table to show new data
+            self.setup_table()
+            QMessageBox.information(
+                self,
+                "Success",
+                "Invoice generated successfully!",
+                QMessageBox.StandardButton.Ok
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Failed to create invoice. Please try again.",
+                QMessageBox.StandardButton.Ok
+            )
 
     def download_invoice(self, row):
         """Helper method to download invoice directly"""
         invoice_data = {
             'id': self.table.item(row, 0).text(),
             'employee': self.table.item(row, 1).text(),
-            'month': self.table.item(row, 2).text(),
-            'year': self.table.item(row, 3).text(),
-            'amount': self.table.item(row, 4).text(),
-            'bonus': self.table.item(row, 5).text(),
-            'status': self.table.cellWidget(row, 6).findChild(QLabel).text()
+            'month': self.table.item(row, 3).text(),
+            'year': self.table.item(row, 4).text(),
+            'amount': self.table.item(row, 5).text(),
+            'bonus': self.table.item(row, 6).text(),
+            'status': self.table.cellWidget(row, 7).findChild(QLabel).text()
         }
         
         # Create temporary viewer to use its PDF generation
         viewer = InvoiceViewer(invoice_data, self)
-        viewer.generate_pdf()
+        return viewer.generate_pdf()  # Return the PDF path
+
+    def send_invoice_email(self, row):
+        """Send invoice via email"""
+        invoice_number = self.table.item(row, 0).text()
+        recipient_email = self.table.item(row, 2).text()
+        
+        # First generate/download the PDF
+        invoice_data = {
+            'id': invoice_number,
+            'employee': self.table.item(row, 1).text(),
+            'month': self.table.item(row, 3).text(),
+            'year': self.table.item(row, 4).text(),
+            'amount': self.table.item(row, 5).text(),
+            'bonus': self.table.item(row, 6).text(),
+            'status': self.table.cellWidget(row, 7).findChild(QLabel).text()
+        }
+        
+        # Create temporary viewer to generate PDF without showing save dialog
+        viewer = InvoiceViewer(invoice_data, None)
+        pdf_path = viewer.generate_pdf(show_save_dialog=False)
+        
+        if pdf_path and os.path.exists(pdf_path):
+            # Send email
+            if send_invoice_email(recipient_email, invoice_number, pdf_path):
+                QMessageBox.information(
+                    self,
+                    "Success",
+                    f"Invoice has been sent to {recipient_email}",
+                    QMessageBox.StandardButton.Ok
+                )
+                # Clean up the temporary PDF file
+                try:
+                    os.remove(pdf_path)
+                except:
+                    pass
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Error",
+                    "Failed to send email. Please check your email settings and try again.",
+                    QMessageBox.StandardButton.Ok
+                )
+        else:
+            QMessageBox.warning(
+                self,
+                "Error",
+                "Failed to generate PDF. Please try again.",
+                QMessageBox.StandardButton.Ok
+            )
 
     def mark_as_paid(self, row):
-        """Update invoice status from Pending to Paid"""
-        status_widget = QWidget()
-        status_layout = QHBoxLayout(status_widget)
-        status_layout.setContentsMargins(8, 0, 8, 0)
-        status_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        status_label = QLabel("Paid")
-        status_label.setStyleSheet("""
-            QLabel {
-                color: white;
-                padding: 6px 12px;
-                border-radius: 4px;
-                font-weight: 500;
-                background-color: #22c55e;
-            }
-        """)
-        status_layout.addWidget(status_label)
-        
-        # Update status cell
-        self.table.setCellWidget(row, 6, status_widget)
-        
-        # Update actions menu (remove Mark as Paid option)
-        actions_widget = QWidget()
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(0, 0, 0, 0)
-        actions_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        
-        action_btn = QPushButton("⋮")
-        action_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f1f5f9;
-                color: #1e293b;
-                border: none;
-                border-radius: 4px;
-                padding: 0px;
-                font-size: 24px;
-                font-weight: bold;
-                min-width: 36px;
-                max-width: 36px;
-                min-height: 36px;
-                max-height: 36px;
-                text-align: center;
-                line-height: 36px;
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-            }
-        """)
-        action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        
-        # Create new menu without Mark as Paid option
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background-color: white;
-                border: 1px solid #e2e8f0;
-                border-radius: 8px;
-                padding: 8px 0px;
-                min-width: 160px;
-            }
-            QMenu::item {
-                padding: 12px 24px;
-                font-size: 14px;
-            }
-            QMenu::item:selected {
-                background-color: #f1f5f9;
-                color: #1e293b;
-            }
-        """)
-        
-        view_action = menu.addAction("👁 View")
-        download_action = menu.addAction("⬇ Download")
-        
-        # Connect actions
-        view_action.triggered.connect(lambda checked, r=row: self.show_invoice_viewer(r))
-        download_action.triggered.connect(lambda checked, r=row: self.download_invoice(r))
-        action_btn.clicked.connect(lambda checked, b=action_btn, m=menu: self.show_action_menu(b, m))
-        
-        actions_layout.addWidget(action_btn)
-        self.table.setCellWidget(row, 7, actions_widget)
+        """Update invoice status from Draft to Paid"""
+        invoice_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if update_invoice_status(invoice_id, 'paid'):
+            # Update the UI
+            self.setup_table()

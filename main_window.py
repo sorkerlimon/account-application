@@ -5,6 +5,7 @@ from PyQt6.QtGui import QFont, QIcon
 from dashboard_view import DashboardView
 from user_management import UserManagement
 from invoice_management import InvoiceManagement
+from salary_sheet import SalarySheet
 
 class MainWindow(QMainWindow):
     def __init__(self, user_data):
@@ -64,7 +65,8 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("Dashboard", "📊"),
             ("User Management", "👥"),
-            ("Invoice Management", "📄")
+            ("Invoice Management", "📄"),
+            ("Salary Sheet", "💰")
         ]
 
         for text, icon in nav_items:
@@ -83,6 +85,7 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(DashboardView(self.user_data))
         self.stack.addWidget(UserManagement(self.user_data))
         self.stack.addWidget(InvoiceManagement(self.user_data))
+        self.stack.addWidget(SalarySheet(self.user_data))
         layout.addWidget(self.stack)
 
         # Connect buttons
